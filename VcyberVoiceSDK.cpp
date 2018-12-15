@@ -1,18 +1,14 @@
-﻿#include "stdafx.h"
+﻿//#include "stdafx.h"
 //#include "vld.h"
 //SDK版本号
-#define SDK_VERSION "2.1.11"
+#define SDK_VERSION "2.1.12"
 
+#include "DNS.h"
 
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 
 #include <time.h>
 #include <memory>
 #include <queue>
-#include <pthread.h>
-
 #include <json/json.h>
 #include <curl/curl.h>
 #include "base64.hpp"
@@ -20,7 +16,6 @@
 
 #include "VcyberVoiceSDK.h"
 #include "VcyberSpeex.h"
-#include "DNS.h"
 #include "Configs.h"
 #include "SdkLib.h"
 #include "TimeLog.h"
@@ -188,11 +183,7 @@ static void *ThreadPostData(void* parameter)
 		}
 		else
 		{
-#ifndef _WIN32
-	usleep(1000);
-#else
-	Sleep(1);
-#endif		
+			Time_sleep(1);	
 		}
 	}
 	
@@ -263,7 +254,7 @@ static void *VDPostData(SESSION_HANDLE handle, const void * waveData, unsigned i
 		pthread_mutex_unlock(&seq_lock);
 		//PostData(handle,data);
 	}
-label:
+
 	if (g_configs.b_log) 
 	{
 		p_Timelog->tprintf("[CloudVDPostData]queue.size = %d\n",sp->m_data->q_buf.size());
@@ -316,10 +307,18 @@ eReturnCode CloudVDInit(const char * configs)
 			p_Timelog->tprintf("[CloudVDInit]DNS_pod Stime\n");
 
 		g_configs.m_server_port = Get_Port((void*)g_configs.m_server_addr.c_str());//获取端口
-		g_configs.m_server_ip =  DNS_pod((void*)g_configs.m_server_addr.c_str());//智能DNS解析出来的IP
+		//g_configs.m_server_ip =  DNS_pod((void*)g_configs.m_server_addr.c_str());//智能DNS解析出来的IP;失败为""
+		g_configs.m_server_ip =  Parsing_IP(g_configs.m_server_addr.c_str());//智能DNS解析出来的IP;失败为""
 
 		if (g_configs.b_log)
-			p_Timelog->tprintf("[CloudVDInit]DNS_pod Etime\n");				
+			p_Timelog->tprintf("[CloudVDInit]DNS_pod Etime\n");	
+
+		if (g_configs.m_server_ip == "")
+		{
+			ret_code = CLOUDVD_ERR_NET;
+			goto label;
+		}
+
 
 		g_configs.m_server_addr = "http://" + g_configs.m_server_ip + ":" + g_configs.m_server_port;
 	}else
@@ -340,7 +339,6 @@ eReturnCode CloudVDInit(const char * configs)
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data_str);
 	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, get_header_str);		
 	curl_easy_setopt(curl, CURLOPT_COOKIEFILE, "");		
-	//curl_easy_setopt(curl, CURLOPT_VERBOSE,1L);
 
 label:
 	if (g_configs.b_log) 
@@ -371,22 +369,7 @@ eReturnCode CloudVDStartSession(const char * params, SESSION_HANDLE * handle)
 	SessionParam *sp = new SessionParam(params);
 	*handle = sp;
 
-	//启动发送音频线程
-	sp->m_data->b_start = false;//线程是否启动起来
-	sp->m_data->b_run = true;//是否让线程继续运行
-	sp->m_data->b_last = false;//最后一段音频是否发送完成
-	sp->m_data->c_code = CURLE_OK ;//libcurl的返回码默认CURLE_OK
-	pthread_t m_threadID;
-	int ret = pthread_create(&m_threadID, NULL, ThreadPostData, (void*)sp->m_data);
-	//确保线程启动起来
-	while (!sp->m_data->b_start)
-	{
-#ifndef _WIN32
-	usleep(1000);
-#else
-	Sleep(1);
-#endif	
-	}
+
 
 	sp->m_http_headers = curl_slist_append(nullptr, "Content-Type:");
 	sp->m_http_headers = curl_slist_append(sp->m_http_headers, "Accept:");
@@ -444,8 +427,25 @@ eReturnCode CloudVDStartSession(const char * params, SESSION_HANDLE * handle)
 	} else {
 		//ret_code =  (eReturnCode)res;
 		ret_code = CLOUDVD_ERR_NET;
+		goto label;
 	}
 
+	{
+		//启动发送音频线程
+		sp->m_data->b_start = false;//线程是否启动起来
+		sp->m_data->b_run = true;//是否让线程继续运行
+		sp->m_data->b_last = false;//最后一段音频是否发送完成
+		sp->m_data->c_code = CURLE_OK ;//libcurl的返回码默认CURLE_OK
+		pthread_t m_threadID;
+		int ret = pthread_create(&m_threadID, NULL, ThreadPostData, (void*)sp->m_data);
+		//确保线程启动起来
+		while (!sp->m_data->b_start)
+		{
+			Time_sleep(1);
+		}
+	}
+
+label:
 	if (g_configs.b_log)
 	{
 		p_Timelog->tprintf("[CloudVDStartSession]function_code=%d\n",ret_code);
@@ -513,11 +513,7 @@ eReturnCode CloudVDGetResult(SESSION_HANDLE handle, ResultData** resultData)
 			}
 			else
 			{
-#ifndef _WIN32
-	usleep(1000);
-#else
-	Sleep(1);
-#endif	
+				Time_sleep(1);
 			}	
 		}
 	}
@@ -559,11 +555,7 @@ eReturnCode CloudVDEndSession(SESSION_HANDLE handle)
 		//确保线程终止
 		while (sp->m_data->b_start)
 		{
-#ifndef _WIN32
-	usleep(1000);
-#else
-	Sleep(1);
-#endif
+			Time_sleep(1);
 		}
 
 		std::string data = get_data((SessionParam*)handle, &g_configs, "SessionEnd", "", (eAudioStatus)NULL);
