@@ -55,7 +55,7 @@ std::string DNS_pod(void *url)
 	char* ipstr = nullptr;
 	CURL *curl = curl_easy_init();
 	std::string domain = Get_Domain(url);
-	std::string server_url = DNS + domain;
+	std::string server_url = DNS + domain + ID;
 	CURLcode res;
 	curl_easy_setopt(curl, CURLOPT_URL, server_url.c_str());
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);   
@@ -109,74 +109,6 @@ void Time_sleep(unsigned long time_ms)
 #endif	
 }
 
-//int  Get_IP_normal(char* IP, const char* url)
-//{
-//	std::string domain = Get_Domain((void*)url);
-//	const char *strDomain2Resolve = domain.c_str();
-//
-//    // 初始化 Winsock
-//    WSADATA wsaData;
-//#ifdef WIN32
-//    int nStatus = WSAStartup(MAKEWORD(2,2), &wsaData);
-//	if (NO_ERROR != nStatus)
-//    {
-//        return -1;
-//    }
-//#endif
-//
-//
-//    addrinfo Hints, *AddrList;
-//    memset(&Hints, 0, sizeof(Hints));
-//	Hints.ai_family = AF_UNSPEC;
-//	Hints.ai_flags = AI_PASSIVE;
-//	Hints.ai_protocol = 0;
-//	Hints.ai_socktype = SOCK_STREAM;
-//
-//
-//
-//    // 进行域名解析
-//    nStatus = getaddrinfo(strDomain2Resolve, NULL, &Hints, &AddrList);
-//    if (NO_ERROR != nStatus)
-//    {
-//        // 处理出错的情况，
-//        printf("getaddrinfo() 失败，错误信息为 %d: %s\n",nStatus, gai_strerror(nStatus));
-//        return -1;
-//    }
-//
-//    // 打印所有找到的地址（一个域名可能对应多个 IP 地址）
-//    printf("已解析出下列地址:\n");
-//	char pBuf[64] = {0};  // 打印缓冲
-//  //  for(addrinfo *i = AddrList; i; i = i->ai_next)
-//  //  {
-//  //      // 取得一个解析出的地址
-//		//sockaddr_in *addr = (sockaddr_in *)i->ai_addr;
-//  //      // 得到可打印版本
-//		//inet_ntop(AF_INET, &addr->sin_addr, pBuf, 16);
-//  //      printf("%s\n", pBuf);
-//  //  }
-//
-//    // 一般来说，客户端程序使用解析出的 IP 列表中的第一个即可
-//    // （如果解析出多个地址的话）
-//    //in6_addr AddrToUse = ((sockaddr_in6 *)AddrList->ai_addr)->sin6_addr;
-//	if (AddrList->ai_family == AF_INET)
-//	{
-//		sockaddr_in *addr = (sockaddr_in *)AddrList->ai_addr;
-//		inet_ntop(AF_INET, &addr->sin_addr, pBuf, 64);
-//		printf("%s\n", pBuf);
-//	}else if(AddrList->ai_family == AF_INET6)
-//	{
-//		sockaddr_in6 *addr6 = (sockaddr_in6 *)AddrList->ai_addr;
-//		inet_ntop(AF_INET6, &addr6->sin6_addr, pBuf, 64);
-//		printf("%s\n", pBuf);
-//	}
-//
-//
-//    freeaddrinfo(AddrList);
-//#ifdef WIN32
-//    WSACleanup();
-//#endif
-//	strcpy(IP,pBuf);
-//}
 #ifdef WIN32
 	pthread_t pod_ID ,normal_ID;
 #else
@@ -185,16 +117,26 @@ void Time_sleep(unsigned long time_ms)
 	struct sigaction actions;
 #endif
 #ifndef WIN32
+	//信号处理函数
 void thread_exit_handler(int sig)
 {
-    //printf("this signal is %d \n", sig);
-    pthread_exit(0);
+	if(sig == SIGUSR1)
+	{
+		p_Timelog->tprintf("tid = %ld exit\n", pthread_self());
+		pthread_exit(0);
+	}
 }
 #endif
 
 static void *Get_IP_pod(void* parameter)
 {
-	printf("[Get_IP_pod]:tid = %ld\n",pthread_self());
+#ifdef _WIN32
+		clock_t st = clock();
+#else
+		struct timeval stv;
+		gettimeofday(&stv, NULL);
+#endif
+	p_Timelog->tprintf("[Get_IP_pod]tid = %ld\n",pthread_self());
 	ip_param* thread_param = (ip_param*) parameter;
 	thread_param->b_start = true;
 
@@ -214,10 +156,11 @@ static void *Get_IP_pod(void* parameter)
 	std::string IP = "";
 	std::string data="";
 	char* ipstr = nullptr;
+	CURL *curl = NULL;
 #ifdef WIN32
-	pthread_cleanup_push(curl_easy_cleanup,NULL);
+	pthread_cleanup_push(curl_easy_cleanup,(void*) curl);
 #endif
-	CURL *curl = curl_easy_init();
+	 curl = curl_easy_init();
 #ifdef WIN32
 	pthread_testcancel();
 	std::string domain = Get_Domain((void*)thread_param->url.c_str());
@@ -225,7 +168,7 @@ static void *Get_IP_pod(void* parameter)
 #else
 	std::string domain = Get_Domain((void*)thread_param->url.c_str());
 #endif
-	std::string server_url = DNS + domain;// + ID;
+	std::string server_url = DNS + domain + ID;// ;
 	CURLcode res;
 	curl_easy_setopt(curl, CURLOPT_URL, server_url.c_str());
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);   
@@ -257,46 +200,61 @@ static void *Get_IP_pod(void* parameter)
 		}
 		sprintf(strip, "%d", *(ip+3)); 
 		IP.append(strip);
-		printf("[Get_IP_pod]%s\n", IP.c_str());
+		p_Timelog->tprintf("[Get_IP_pod]IP=%s\n", IP.c_str());
 	}
 
 	curl_easy_cleanup(curl);
 #ifdef WIN32
 	pthread_cleanup_pop(0);
 #endif
-	//如果解析错误，sleep 两秒 等待另一个线程解析出来IP
+
 	if (IP == "")
 	{
 		thread_param->b_status = UNSUCCEEDED;
-		return NULL;
+		goto label;
 	}
-	thread_param->IP = IP;
-	thread_param->b_status = SUCCEEDED;
-
-	int kill_rc = pthread_kill(normal_ID,0);
-	if(kill_rc == 3)
-		printf("[Get_IP_pod]the normal_ID thread did not exists or already quit\n");
-	else if(kill_rc == 22)
-		printf("[Get_IP_pod]signal is invalid\n");
-	else
 	{
-		printf("[Get_IP_pod]the normal_ID thread is alive;Do pthread_cancel\n");
+		thread_param->IP = IP;
+		thread_param->b_status = SUCCEEDED;
+
+		int kill_rc = pthread_kill(normal_ID,0);
+		if(kill_rc == 3)
+			p_Timelog->tprintf("[Get_IP_pod]the normal_ID thread did not exists or already quit\n");
+		else if(kill_rc == 22)
+			p_Timelog->tprintf("[Get_IP_pod]signal is invalid\n");
+		else
+		{
+			p_Timelog->tprintf("[Get_IP_pod]the normal_ID thread is alive;Do pthread_cancel\n");
 #ifdef WIN32
 		pthread_cancel(normal_ID);//使另外一个线程退出
 #else
 		if (pthread_kill(normal_ID, SIGUSR1) != 0) 
 		{ 
-			printf("[Get_IP_pod]Error cancelling thread %d", pthread_id, status);
+			p_Timelog->tprintf("[Get_IP_pod]Error cancelling pod_ID thread : %d", normal_ID);
 		} 
 #endif
+		}
 	}
-	printf("[Get_IP_pod]:tid = %ld return \n",pthread_self());
+label:
+	p_Timelog->tprintf("[Get_IP_pod]tid = %ld exit\n",pthread_self());
+#ifdef _WIN32
+	p_Timelog->EndTimeLog("[Get_IP_pod]Get_IP_pod End Time[%d]\n",st);	
+#else
+	p_Timelog->EndTimeLog("[Get_IP_pod]Get_IP_pod End Time[%d]\n",stv);
+#endif
 	return NULL;
 }
 
 static void *Get_IP_normal(void* parameter)
 {
-	printf("[Get_IP_normal]:tid = %ld\n",pthread_self());
+#ifdef _WIN32
+		clock_t st = clock();
+#else
+		struct timeval stv;
+		gettimeofday(&stv, NULL);
+#endif
+
+	p_Timelog->tprintf("[Get_IP_normal]tid = %ld\n",pthread_self());
 	ip_param* thread_param = (ip_param*) parameter;
 	thread_param->b_start = true;
 
@@ -337,7 +295,7 @@ static void *Get_IP_normal(void* parameter)
     }
 #endif
 	
-    addrinfo Hints, *AddrList;
+    addrinfo Hints, *AddrList = NULL;
     memset(&Hints, 0, sizeof(Hints));
 	Hints.ai_family = AF_INET;
 	Hints.ai_flags = AI_PASSIVE;
@@ -347,7 +305,7 @@ static void *Get_IP_normal(void* parameter)
 	{
 #ifdef WIN32
 	 // 进行域名解析
-	pthread_cleanup_push(freeaddrinfo,NULL);
+	pthread_cleanup_push(freeaddrinfo,(void*)AddrList);
 	pthread_testcancel();
     nStatus = getaddrinfo(strDomain2Resolve, NULL, &Hints, &AddrList);
 	pthread_testcancel();
@@ -357,7 +315,8 @@ static void *Get_IP_normal(void* parameter)
     if (0 != nStatus)
     {
         // 处理出错的情况，
-        printf("[Get_IP_normal]getaddrinfo() failed，error %d: %s\n",nStatus, gai_strerror(nStatus));
+		//p_Timelog->tprintf("[Get_IP_normal]getaddrinfo() failed %d: %s\n",nStatus, gai_strerror(nStatus));
+		p_Timelog->tprintf("[Get_IP_normal]getaddrinfo() failed %d\n",nStatus);
 		thread_param->b_status = UNSUCCEEDED;
 		goto lable;
     }
@@ -370,12 +329,12 @@ static void *Get_IP_normal(void* parameter)
 	{
 		sockaddr_in *addr = (sockaddr_in *)AddrList->ai_addr;
 		inet_ntop(AF_INET, &addr->sin_addr, pBuf, 64);
-		printf("[Get_IP_normal]%s\n", pBuf);
+		p_Timelog->tprintf("[Get_IP_normal]IP=%s\n", pBuf);
 	}else if(AddrList->ai_family == AF_INET6)
 	{
 		sockaddr_in6 *addr6 = (sockaddr_in6 *)AddrList->ai_addr;
 		inet_ntop(AF_INET6, &addr6->sin6_addr, pBuf, 64);
-		printf("[Get_IP_normal]%s\n", pBuf);
+		p_Timelog->tprintf("[Get_IP_normal]IP=%s\n", pBuf);
 	}
 
 	thread_param->IP = pBuf;
@@ -383,22 +342,22 @@ static void *Get_IP_normal(void* parameter)
 
 	int kill_rc = pthread_kill(pod_ID,0);
 	if(kill_rc == 3)
-		printf("[Get_IP_normal]the pod_ID thread did not exists or already quit\n");
+		p_Timelog->tprintf("[Get_IP_normal]the pod_ID thread did not exists or already quit\n");
 	else if(kill_rc == 22)
-		printf("[Get_IP_normal]signal is invalid\n");
+		p_Timelog->tprintf("[Get_IP_normal]signal is invalid\n");
 	else
 	{
-		printf("[Get_IP_normal]the pod_ID thread is alive;Do pthread_cancel\n");
+		p_Timelog->tprintf("[Get_IP_normal]the pod_ID thread is alive;Do pthread_cancel\n");
 #ifdef WIN32
 		pthread_cancel(pod_ID);//使另外一个线程退出
 #else
 		if (pthread_kill(pod_ID, SIGUSR1) != 0) 
 		{ 
-			printf("[Get_IP_normal]Error cancelling thread %d", pthread_id, status);
+			p_Timelog->tprintf("[Get_IP_normal]Error cancelling pod_ID thread : %d", pod_ID);
 		} 
 #endif
 	}
-	printf("[Get_IP_normal]:tid = %ld return \n",pthread_self());
+	
 	}
 	}
 
@@ -410,11 +369,27 @@ lable:
     WSACleanup();
 	pthread_cleanup_pop(0);
 #endif
+
+	p_Timelog->tprintf("[Get_IP_normal]tid = %ld exit\n",pthread_self());
+#ifdef _WIN32
+	p_Timelog->EndTimeLog("[Get_IP_normal]Get_IP_normal End Time[%d]\n",st);	
+#else
+	p_Timelog->EndTimeLog("[Get_IP_normal]Get_IP_normal End Time[%d]\n",stv);
+#endif
+
 	return NULL;
 }
 
 std::string Parsing_IP(const char* url)
 {
+#ifdef _WIN32
+		clock_t st = clock();
+#else
+		struct timeval stv;
+		gettimeofday(&stv, NULL);
+#endif
+	p_Timelog->tprintf("[Parsing_IP]Parsing_IP Start Time\n");
+	std::string IP = "";
 	ip_param pod_ip,normal_ip;
 	pod_ip.b_start = false;
 	pod_ip.url = url;
@@ -425,6 +400,7 @@ std::string Parsing_IP(const char* url)
 	pod_ip.IP = "";
 	normal_ip.IP = "";
 
+	//
 #ifndef WIN32
 	memset(&actions, 0, sizeof(actions));
 	pthread_t tmp_id = 0;	
@@ -441,22 +417,7 @@ std::string Parsing_IP(const char* url)
 		pthread_join(tmp_id,NULL);
 	}
 #else
-	//pthread_t tmp_id;
-	//tmp_id.p = nullptr;
-	//tmp_id.x = 0;
 
-	//if (pod_ID.x != 0)
-	//{
-	//	tmp_id = pod_ID;
-	//	pthread_cancel(pod_ID);//使另外一个线程退出
-	//	pthread_join(tmp_id,NULL);
-	//}
-	//if (normal_ID.x != 0)
-	//{
-	//	tmp_id = normal_ID;
-	//	pthread_cancel(normal_ID);
-	//	pthread_join(tmp_id,NULL);
-	//}
 #endif
 	///////////////////智能DNS解析线程////////////////////////////////
 	int ret = pthread_create(&pod_ID, NULL, Get_IP_pod, (void*)&pod_ip);
@@ -467,11 +428,10 @@ std::string Parsing_IP(const char* url)
 	}
 	else
 	{
-		while (pod_ip.b_start)
+		while (!pod_ip.b_start)
 		{
 			Time_sleep(1);
 		}
-		//pthread_detach(pod_ID);
 	}
 	
 	//////////////////普通方法解析线程///////////////////////////////
@@ -487,7 +447,6 @@ std::string Parsing_IP(const char* url)
 		{
 			Time_sleep(1);
 		}
-		//pthread_detach(normal_ID);
 	}
 	
 	pthread_join(pod_ID,NULL);
@@ -498,19 +457,30 @@ std::string Parsing_IP(const char* url)
 	{
 		if (pod_ip.b_status == UNSUCCEEDED && normal_ip.b_status == UNSUCCEEDED)
 		{
-				return "";
+				IP = "";
+				goto label;
 		}
 		Time_sleep(1);	
 	}
-
+	
 	if (pod_ip.b_status == SUCCEEDED)
 	{
-		return pod_ip.IP;
+		IP = pod_ip.IP;
 	}
 	else if(normal_ip.b_status == SUCCEEDED)
 	{
-		return normal_ip.IP ;	
+		IP = normal_ip.IP ;	
 	}
+	
+
+
+label:
+#ifdef _WIN32
+	p_Timelog->EndTimeLog("[Parsing_IP]Parsing_IP End Time[%d]\n",st);	
+#else
+	p_Timelog->EndTimeLog("[Parsing_IP]Parsing_IP End Time[%d]\n",stv);
+#endif
+	return IP;
 }
 
 

@@ -24,7 +24,8 @@ using namespace std;
 const int SILKSIZE = 700;
 
 static Configs g_configs;
-static CTimeLog* p_Timelog = nullptr;
+//static CTimeLog* p_Timelog = nullptr;
+extern CTimeLog* p_Timelog = nullptr;
 static CURL *curl = nullptr;
 static string session_id;
 pthread_mutex_t seq_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -368,8 +369,6 @@ eReturnCode CloudVDStartSession(const char * params, SESSION_HANDLE * handle)
 	eReturnCode ret_code = CLOUDVD_SUCCESS;
 	SessionParam *sp = new SessionParam(params);
 	*handle = sp;
-
-
 
 	sp->m_http_headers = curl_slist_append(nullptr, "Content-Type:");
 	sp->m_http_headers = curl_slist_append(sp->m_http_headers, "Accept:");

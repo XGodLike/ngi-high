@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "pthread.h"
 #include <signal.h>
+#include <TimeLog.h>
 #ifndef WIN32
 	#include <netdb.h>
 	#include <arpa/inet.h>
@@ -29,7 +30,7 @@
 
 //http://119.29.29.29/d?dn=[域名加密后的字符串]&id=[授权ID]&ttl=1
 #define DNS "http://119.29.29.29/d?dn="
-#define ID "&id=7191"
+#define ID "&id=[7191]"
 
 
 std::string Get_IP(void* url);
@@ -57,3 +58,5 @@ typedef struct Thread_IP
 	std::string url;
 	std::string IP;	
 }ip_param;
+
+extern CTimeLog* p_Timelog;
